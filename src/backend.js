@@ -1,7 +1,7 @@
 (() => {
   const config = window.GAME_CONFIG || {};
-  let client, channel, ownId, timer, authListenerBound = false, latestPosition = { x: 0, depth: .78, name: 'Qonaq', avatar: '#e28b68' };
-  const playerListeners = new Set(), postListeners = new Set(), emoteListeners = new Set();
+  let client, channel, ownId, lastPositionSent = 0, authListenerBound = false, latestPosition = { x: 0, depth: .78, name: 'Qonaq', avatar: '#e28b68' };
+  const remotePlayers = new Map(); const playerListeners = new Set(), postListeners = new Set(), emoteListeners = new Set();
   const emit = (listeners, value) => listeners.forEach(fn => fn(value));
   const makeId = () => crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   async function connect() {
@@ -25,29 +25,29 @@
     const { error } = await client.from('street_profiles').upsert({ id: user.id, display_name: name.slice(0, 18), avatar_color: avatar, updated_at: new Date().toISOString() });
     if (error) throw error; return user;
   }
-  async function connectWorld(name, avatar, onAuth) {
+  function publishPlayers(){emit(playerListeners,[...remotePlayers.values()].filter(p=>p.user_id!==ownId));} function syncOnlinePlayers(){const online=Object.values(channel.presenceState()).flat().filter(p=>p.user_id&&p.user_id!==ownId);const ids=new Set(online.map(p=>p.user_id));for(const id of remotePlayers.keys())if(!ids.has(id))remotePlayers.delete(id);for(const p of online){const previous=remotePlayers.get(p.user_id)||{};remotePlayers.set(p.user_id,{...p,...previous,user_id:p.user_id});}publishPlayers();} function receivePosition(payload){if(!payload?.user_id||payload.user_id===ownId)return;remotePlayers.set(payload.user_id,{...(remotePlayers.get(payload.user_id)||{}),...payload});publishPlayers();} async function connectWorld(name, avatar, onAuth) {
     const { data: { user } } = await client.auth.getUser(); if (!user) return null;
-    ownId = user.id; await syncProfile(name, avatar);
+    ownId = user.id; latestPosition = { ...latestPosition, name, avatar }; remotePlayers.clear(); await syncProfile(name, avatar);
     channel = client.channel('nar-ciceyi-main', { config: { presence: { key: user.id }, broadcast: { self: false } } });
     channel.on('presence', { event: 'sync' }, () => {
-      const all = Object.values(channel.presenceState()).flat().filter(p => p.user_id !== ownId);
-      emit(playerListeners, all);
-    }).on('broadcast', { event: 'emote' }, ({ payload }) => emit(emoteListeners, payload))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'street_posts' }, () => refreshPosts());
+      syncOnlinePlayers();
+      // Players are emitted by syncOnlinePlayers.
+    }).on('broadcast', { event: 'player-position' }, ({ payload }) => receivePosition(payload)).on('broadcast', { event: 'wall-post' }, () => refreshPosts().catch(() => {})).on('broadcast', { event: 'emote' }, ({ payload }) => emit(emoteListeners, payload))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'street_posts' }, () => refreshPosts().catch(() => {}));
     channel.subscribe(async status => {
       if (status === 'SUBSCRIBED') {
         await channel.track({ user_id: ownId, name: latestPosition.name, avatar: latestPosition.avatar, x: latestPosition.x, depth: latestPosition.depth, online_at: new Date().toISOString() });
       }
     });
-    if (timer) clearInterval(timer);
-    timer = setInterval(() => { if (channel && ownId) channel.track({ user_id: ownId, name: latestPosition.name, avatar: latestPosition.avatar, x: latestPosition.x, depth: latestPosition.depth, online_at: new Date().toISOString() }); }, 900);
+    
+    
     if (!authListenerBound) { client.auth.onAuthStateChange((event, session) => onAuth?.(event, session)); authListenerBound = true; }
     await refreshPosts(); return user;
   }
   async function disconnect() {
-    if (timer) clearInterval(timer); timer = null;
+     
     if (channel && client) await client.removeChannel(channel);
-    channel = null; ownId = null; emit(playerListeners, []);
+    channel = null; ownId = null; remotePlayers.clear(); emit(playerListeners, []);
   }
   async function refreshPosts() {
     if (!client) return [];
@@ -64,7 +64,7 @@
   }
   function currentPlayers() {
     if (!channel) return [];
-    return Object.values(channel.presenceState()).flat().filter(p => p.user_id !== ownId);
+    return [...remotePlayers.values()].filter(p => p.user_id !== ownId);
   }
   async function createPost(body, file, displayName) {
     const { data: { user } } = await client.auth.getUser(); if (!user) throw new Error('Paylaşmaq üçün əvvəlcə hesaba daxil ol.');
@@ -76,7 +76,7 @@
       const { data } = client.storage.from('street-posts').getPublicUrl(path); imageUrl = data.publicUrl;
     }
     const { data, error } = await client.from('street_posts').insert({ author_id: user.id, display_name: displayName.slice(0, 18), body: body.slice(0, 180), image_url: imageUrl, spot_id: 'wall' }).select().single();
-    if (error) throw error; await refreshPosts(); return data;
+    if (error) throw error; await refreshPosts(); if (channel) channel.send({ type: 'broadcast', event: 'wall-post', payload: { post_id: data.id } }).catch(() => {}); return data;
   }
   async function report(kind, targetId, reason) {
     const { error } = await client.from('street_reports').insert({ reporter_id: ownId, target_type: kind, target_id: targetId, reason: reason.slice(0, 240) });
@@ -106,7 +106,7 @@
     if (existing) { const { error } = await client.from('street_likes').delete().eq('post_id', postId).eq('user_id', ownId); if (error) throw error; return false; }
     const { error } = await client.from('street_likes').insert({ post_id: postId, user_id: ownId }); if (error) throw error; return true;
   }
-  function move(position) { latestPosition = { ...latestPosition, ...position }; }
+  function move(position) { latestPosition = { ...latestPosition, ...position }; const now = performance.now(); if (!channel || !ownId || now - lastPositionSent < 120) return; lastPositionSent = now; channel.send({ type: 'broadcast', event: 'player-position', payload: { user_id: ownId, x: latestPosition.x, depth: latestPosition.depth, name: latestPosition.name, avatar: latestPosition.avatar } }).catch(() => {}); }
   function emote(icon) { if (channel) channel.send({ type: 'broadcast', event: 'emote', payload: { user_id: ownId, icon } }); }
   window.StreetBackend = {
     connect, signUp, signIn, signInAsGuest: async () => { const { data, error } = await client.auth.signInAnonymously({ options: { data: { display_name: 'Qonşu' } } }); if (error) throw error; return data; }, signOut, connectWorld, disconnect, syncProfile, createPost, report, block, addFriend, getBlocks, getFriends, toggleLike, move, emote,
