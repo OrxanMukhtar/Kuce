@@ -1,6 +1,5 @@
-// Paste the Supabase project URL and anon/publishable key here after creating the project.
-// Never put a service_role key in browser code.
+// Browser-safe Supabase project configuration. Never put a service_role key here.
 window.GAME_CONFIG = {
-  supabaseUrl: '',
-  supabaseAnonKey: ''
+  supabaseUrl: 'https://nzwtpytrvxpokqaxfehl.supabase.co',
+  supabaseAnonKey: 'sb_publishable_ltaNA7nnVozoSCOcZIjg'
 };
