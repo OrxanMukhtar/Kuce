@@ -1,0 +1,12 @@
+{
+  "appId": "az.axsamisiqlari.street",
+  "appName": "Axşam işıqları",
+  "webDir": "www",
+  "backgroundColor": "#171b22",
+  "ios": {
+    "contentInset": "automatic"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}

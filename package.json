@@ -1,0 +1,25 @@
+{
+  "name": "axsam-isiqlari",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pixel-art virtual street game prototype",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "npx serve .",
+    "add:android": "npx cap add android",
+    "add:ios": "npx cap add ios",
+    "android": "npx cap open android",
+    "ios": "npx cap open ios",
+    "sync": "npx cap sync"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/core": "^8.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.0.0"
+  },
+  "optionalDependencies": {
+    "@capacitor/ios": "^8.0.0"
+  }
+}
