@@ -36,11 +36,11 @@
       .on('postgres_changes', { event: '*', schema: 'public', table: 'street_posts' }, () => refreshPosts());
     channel.subscribe(async status => {
       if (status === 'SUBSCRIBED') {
-        await channel.track({ user_id: ownId, name, avatar, x: latestPosition.x, depth: latestPosition.depth, online_at: new Date().toISOString() });
+        await channel.track({ user_id: ownId, name: latestPosition.name, avatar: latestPosition.avatar, x: latestPosition.x, depth: latestPosition.depth, online_at: new Date().toISOString() });
       }
     });
     if (timer) clearInterval(timer);
-    timer = setInterval(() => { if (channel && ownId) channel.track({ user_id: ownId, name, avatar, x: latestPosition.x, depth: latestPosition.depth, online_at: new Date().toISOString() }); }, 1800);
+    timer = setInterval(() => { if (channel && ownId) channel.track({ user_id: ownId, name: latestPosition.name, avatar: latestPosition.avatar, x: latestPosition.x, depth: latestPosition.depth, online_at: new Date().toISOString() }); }, 900);
     if (!authListenerBound) { client.auth.onAuthStateChange((event, session) => onAuth?.(event, session)); authListenerBound = true; }
     await refreshPosts(); return user;
   }
@@ -109,7 +109,7 @@
   function move(position) { latestPosition = { ...latestPosition, ...position }; }
   function emote(icon) { if (channel) channel.send({ type: 'broadcast', event: 'emote', payload: { user_id: ownId, icon } }); }
   window.StreetBackend = {
-    connect, signUp, signIn, signOut, connectWorld, disconnect, syncProfile, createPost, report, block, addFriend, getBlocks, getFriends, toggleLike, move, emote,
+    connect, signUp, signIn, signInAsGuest: async () => { const { data, error } = await client.auth.signInAnonymously({ options: { data: { display_name: 'Qonşu' } } }); if (error) throw error; return data; }, signOut, connectWorld, disconnect, syncProfile, createPost, report, block, addFriend, getBlocks, getFriends, toggleLike, move, emote,
     onPlayers: fn => { playerListeners.add(fn); fn(currentPlayers()); return () => playerListeners.delete(fn); },
     onPosts: fn => { postListeners.add(fn); if (ownId) refreshPosts().catch(() => {}); return () => postListeners.delete(fn); },
     onEmote: fn => { emoteListeners.add(fn); return () => emoteListeners.delete(fn); },
